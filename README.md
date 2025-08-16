@@ -102,7 +102,7 @@ sudo python3 j-anonymous.py
 ## 📺 Video Tutorial (Click Image Below)
 *Watch the step-by-step guide to install and use J-Anonymous:*  
 
-[![How to Use J-Anonymous](https://i.imgur.com/DAku3VY.png)](https://youtu.be/abc123def45)
+[![How to Use J-Anonymous](https://i.imgur.com/DAku3VY.png)](https://youtu.be/SzQUwJZf2NU?si=rMS0kpewT4EdObqK)
 
 ---
 
