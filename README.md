@@ -33,7 +33,7 @@ J-Anonymous is an advanced network privacy toolkit designed for cybersecurity pr
 
 ### **1. Clone the Repository**  
 ```bash
-git clone https://github.com/yourusername/J-Anonymous.git
+git clone https://github.com/jprojectplatform/J-Anonymous.git
 cd J-Anonymous
 ```
 
