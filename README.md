@@ -107,7 +107,7 @@ sudo python3 j-anonymous.py
 ---
 
 ## 📜 **License**  
-This project is licensed under **MIT License**.  
+This project is licensed under **J Project License (JPL)**.  
 *Use responsibly and only on networks you own or have permission to test.*  
 
 ---
