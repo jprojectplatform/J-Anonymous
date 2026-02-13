@@ -6,6 +6,8 @@ import subprocess
 import time
 import requests
 import re
+import signal
+import sys
 from colorama import Fore, Style, init
 
 # Hapa tambua colorama
@@ -37,6 +39,14 @@ def check_root():
         print(Fore.RED + "[!] This script must be run as root!" + Style.RESET_ALL)
         exit(1)
 
+# Check for SOCKS support (Required for new proxy logic)
+def check_dependencies():
+    try:
+        import socks
+    except ImportError:
+        print(Fore.YELLOW + "[*] Installing required dependency: PySocks..." + Style.RESET_ALL)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pysocks"])
+
 # Taarifa zote za NETWORK kwa mda huo hpa
 def get_current_info():
     print(Fore.CYAN + "\n[*] Current Network Information:" + Style.RESET_ALL)
@@ -57,7 +67,7 @@ def get_current_info():
     
     # Tambua WAN IP
     try:
-        wan_ip = requests.get('https://api.ipify.org').text
+        wan_ip = requests.get('https://api.ipify.org', timeout=5).text
         print(f"WAN IP: {wan_ip}")
     except:
         print("Could not determine WAN IP")
@@ -127,20 +137,7 @@ def change_lan_ip():
         return False
 
 
-# Change WAN IP (kwa VPN or proxy)
-
-def check_and_install_curl():
-    """Check if curl is installed, install if missing"""
-    try:
-        subprocess.run(["curl", "--version"], 
-                      check=True, 
-                      stdout=subprocess.DEVNULL, 
-                      stderr=subprocess.DEVNULL)
-        return True
-    except:
-        print(Fore.YELLOW + "[!] Installing curl..." + Style.RESET_ALL)
-        return subprocess.run(["sudo", "apt", "install", "curl", "-y"], 
-                            check=False).returncode == 0
+# --- WAN IP & PROXY SECTION (UPDATED) ---
 
 def check_and_install_tor():
     """Check if tor is installed, install if missing"""
@@ -156,55 +153,81 @@ def check_and_install_tor():
                             check=False).returncode == 0
 
 def fetch_and_test_proxies():
-    """Attempt to fetch and test proxies from multiple sources"""
-    PROXY_APIS = [
-        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all",
-        "https://www.proxy-list.download/api/v1/get?type=http",
-        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt"
+    """Updated Robust Proxy Fetcher & Tester"""
+    
+    # 1. Sources targeting SOCKS5 and HTTPS (better for anonymity/SSL)
+    PROXY_SOURCES = [
+        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=socks5&timeout=10000&country=all",
+        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=https&timeout=10000&country=all",
+        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
+        "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-https.txt"
     ]
     
-    for api_url in PROXY_APIS:
+    print(Fore.CYAN + "\n[*] Fetching fresh proxy list (SOCKS5/HTTPS)..." + Style.RESET_ALL)
+    
+    candidates = []
+    
+    # 2. Fetch and Parse
+    for url in PROXY_SOURCES:
         try:
-            print(Fore.CYAN + f"[*] Attempting proxy source: {api_url.split('/')[2]}" + Style.RESET_ALL)
-            
-            result = subprocess.run(
-                f'curl --connect-timeout 10 --retry 1 "{api_url}" -o J-Proxies.txt',
-                shell=True,
-                stderr=subprocess.PIPE,
-                timeout=15
-            )
-            
-            if result.returncode != 0:
-                raise Exception(result.stderr.decode().strip())
-                
-            with open("J-Proxies.txt", "r") as f:
-                proxies = [p.strip() for p in f.readlines() if p.strip()]
-                
-            if not proxies:
-                raise Exception("Empty proxy list")
-                
-            print(Fore.GREEN + f"[+] Retrieved {len(proxies)} proxies" + Style.RESET_ALL)
-            
-            for proxy in random.sample(proxies, min(5, len(proxies))):
-                try:
-                    test_ip = requests.get(
-                        "https://api.ipify.org?format=json",
-                        proxies={"http": f"http://{proxy}", "https": f"http://{proxy}"},
-                        timeout=5
-                    ).json().get("ip")
-                    
-                    if test_ip:
-                        print(Fore.GREEN + f"[✓] Working proxy: {proxy}" + Style.RESET_ALL)
-                        print(Fore.GREEN + f"[+] New WAN IP: {test_ip}" + Style.RESET_ALL)
-                        return True
-                        
-                except Exception as e:
-                    continue
-                    
-        except Exception as e:
-            print(Fore.RED + f"[!] Proxy source failed: {str(e)[:100]}" + Style.RESET_ALL)
+            r = requests.get(url, timeout=10)
+            if r.status_code == 200:
+                # Regex to extract only valid IP:PORT patterns, ignoring HTML junk
+                matches = re.findall(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+", r.text)
+                candidates.extend(matches)
+        except:
             continue
             
+    # Remove duplicates
+    candidates = list(set(candidates))
+    
+    if not candidates:
+        print(Fore.RED + "[!] No proxies found. Check internet connection." + Style.RESET_ALL)
+        return False
+        
+    print(Fore.YELLOW + f"[*] Testing {min(20, len(candidates))} candidates (out of {len(candidates)} found)..." + Style.RESET_ALL)
+    
+    # 3. Test Proxies (Prioritize SOCKS5)
+    for proxy in random.sample(candidates, min(20, len(candidates))):
+        try:
+            # Try as SOCKS5 first (requires 'pysocks' installed)
+            proxies = {
+                'http': f'socks5://{proxy}',
+                'https': f'socks5://{proxy}'
+            }
+            
+            print(f"\rTesting: {proxy} ... ", end="", flush=True)
+            
+            # Use short timeout for testing
+            response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=5)
+            
+            if response.status_code == 200:
+                new_ip = response.json().get('ip')
+                print(Fore.GREEN + f"\n[✓] SUCCESS! SOCKS5 Proxy locked: {proxy}" + Style.RESET_ALL)
+                print(Fore.GREEN + f"[+] New WAN IP: {new_ip}" + Style.RESET_ALL)
+                
+                # Save working proxy
+                with open("j-proxies-working.txt", "w") as f:
+                    f.write(proxy)
+                return True
+                
+        except:
+            # Fallback: Try as standard HTTPS
+            try:
+                proxies = {
+                    'http': f'http://{proxy}',
+                    'https': f'http://{proxy}'
+                }
+                response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=5)
+                if response.status_code == 200:
+                    new_ip = response.json().get('ip')
+                    print(Fore.GREEN + f"\n[✓] SUCCESS! HTTPS Proxy locked: {proxy}" + Style.RESET_ALL)
+                    print(Fore.GREEN + f"[+] New WAN IP: {new_ip}" + Style.RESET_ALL)
+                    return True
+            except:
+                continue
+                
+    print(Fore.RED + "\n[!] Proxies timed out. Switching to Tor fallback..." + Style.RESET_ALL)
     return False
 
 def enable_tor_mode():
@@ -219,25 +242,18 @@ def enable_tor_mode():
             time.sleep(5)  # Wait for Tor to initialize
 
         # 2. Get current IP through Tor
-        try:
-            old_ip = requests.get(
-                "https://api.ipify.org",
-                proxies={"http": "socks5h://127.0.0.1:9050", "https": "socks5h://127.0.0.1:9050"},
-                timeout=15
-            ).text
-            print(Fore.CYAN + f"[*] Current Tor IP: {old_ip}" + Style.RESET_ALL)
-        except Exception as e:
-            print(Fore.RED + f"[!] Initial Tor check failed: {str(e)[:100]}" + Style.RESET_ALL)
-            old_ip = None
-
-        # 3. Rotate IP (with proper authentication)
-        tor_auth = "sudo cat /var/run/tor/control.authcookie | xxd -ps"
-        auth_cookie = subprocess.run(tor_auth, shell=True, check=True, capture_output=True, text=True).stdout.strip()
+        print(Fore.CYAN + "[*] Switching to Tor Circuit..." + Style.RESET_ALL)
         
-        rotate_cmd = f"echo -e 'AUTHENTICATE {auth_cookie}\\nSIGNAL NEWNYM' | nc 127.0.0.1 9051"
-        subprocess.run(rotate_cmd, shell=True, check=True)
-        print(Fore.YELLOW + "[*] Rotating Tor circuit..." + Style.RESET_ALL)
-        time.sleep(10)  # Wait for circuit rebuild
+        # 3. Rotate IP (if authentication is set up)
+        try:
+            tor_auth = "sudo cat /var/run/tor/control.authcookie | xxd -ps"
+            auth_cookie = subprocess.run(tor_auth, shell=True, check=True, capture_output=True, text=True).stdout.strip()
+            rotate_cmd = f"echo -e 'AUTHENTICATE {auth_cookie}\\nSIGNAL NEWNYM' | nc 127.0.0.1 9051"
+            subprocess.run(rotate_cmd, shell=True, check=True)
+            print(Fore.YELLOW + "[*] Rotating Tor identity..." + Style.RESET_ALL)
+            time.sleep(5)
+        except:
+            pass # Continue if auth fails, might still work with default circuit
 
         # 4. Verify new IP
         try:
@@ -247,20 +263,13 @@ def enable_tor_mode():
                 timeout=20
             ).text
             
-            if new_ip != old_ip:
-                print(Fore.GREEN + f"[✓] Tor IP rotated: {new_ip}" + Style.RESET_ALL)
-                return True
-            else:
-                print(Fore.RED + "[!] Tor IP unchanged after rotation" + Style.RESET_ALL)
-                return False
+            print(Fore.GREEN + f"[✓] Tor Active | New IP: {new_ip}" + Style.RESET_ALL)
+            return True
                 
         except Exception as e:
-            print(Fore.RED + f"[!] Final Tor check failed: {str(e)[:100]}" + Style.RESET_ALL)
+            print(Fore.RED + f"[!] Tor check failed: {str(e)[:100]}" + Style.RESET_ALL)
             return False
 
-    except subprocess.CalledProcessError as e:
-        print(Fore.RED + f"[!] Tor control failed: {str(e)[:100]}" + Style.RESET_ALL)
-        return False
     except Exception as e:
         print(Fore.RED + f"[!] Tor error: {str(e)[:100]}" + Style.RESET_ALL)
         return False
@@ -268,20 +277,23 @@ def enable_tor_mode():
 def change_wan_ip():
     print(Fore.YELLOW + "\n[*] Initializing WAN IP change..." + Style.RESET_ALL)
     
-    if not check_and_install_curl():
-        print(Fore.RED + "[!] curl installation failed" + Style.RESET_ALL)
-        return False
-        
+    # Ensure dependencies
+    check_dependencies()
+    
     if not check_and_install_tor():
         print(Fore.RED + "[!] tor installation failed" + Style.RESET_ALL)
         return False
     
-    if not fetch_and_test_proxies():
+    # Try Proxies First
+    if fetch_and_test_proxies():
+        return True
+    else:
+        # Fallback to Tor
         print(Fore.YELLOW + "[!] Proxy methods failed. Falling back to Tor..." + Style.RESET_ALL)
         return enable_tor_mode()
         
-    return True
-        
+# --- PROTONVPN SECTION ---
+
 def check_install_protonvpn():
     """Check for both CLI (venv or system) and GUI installations"""
     print(Fore.YELLOW + "\n[*] Checking ProtonVPN installation..." + Style.RESET_ALL)
@@ -318,22 +330,11 @@ def enable_protonvpn():
     vpn_type = check_install_protonvpn()
     
     if not vpn_type:
-        print(Fore.RED + "[!] Install ProtonVPN first:" + Style.RESET_ALL)
-        print(Fore.YELLOW + "For CLI in virtual environment:\n" +
-              "1. Activate venv: source j-anonymous-env/bin/activate\n" +
-              "2. Install: pip3 install protonvpn-cli\n" +
-              "3. Initialize: sudo $(which protonvpn) init\n\n" +
-              "For system-wide CLI:\n" +
-              "sudo apt install openvpn dialog python3-pip && " +
-              "sudo pip3 install protonvpn-cli && " +
-              "sudo protonvpn init\n\n" +
-              "For GUI version:\n" +
-              "Download from https://protonvpn.com/download" + Style.RESET_ALL)
+        print(Fore.RED + "[!] Install ProtonVPN first." + Style.RESET_ALL)
         return False
 
     try:
         if vpn_type.startswith("cli"):
-            # Use venv path if available
             protonvpn_path = os.path.join(os.environ.get('VIRTUAL_ENV', ''), 'bin', 'protonvpn') if vpn_type == "cli-venv" else "protonvpn"
             
             print(Fore.YELLOW + "[*] Connecting via CLI..." + Style.RESET_ALL)
@@ -351,7 +352,6 @@ def enable_protonvpn():
         elif vpn_type == "gui":
             print(Fore.YELLOW + "[*] Launching GUI - please connect manually..." + Style.RESET_ALL)
             subprocess.Popen(["proton-vpn"])
-            print(Fore.CYAN + "[!] Please click 'Quick Connect' in the ProtonVPN GUI window" + Style.RESET_ALL)
             input("Press Enter AFTER you've established the VPN connection...")
             return True
             
@@ -369,19 +369,9 @@ def disable_protonvpn():
     try:
         if vpn_type.startswith("cli"):
             protonvpn_path = os.path.join(os.environ.get('VIRTUAL_ENV', ''), 'bin', 'protonvpn') if vpn_type == "cli-venv" else "protonvpn"
-            print(Fore.YELLOW + "[*] Disconnecting via CLI..." + Style.RESET_ALL)
-            subprocess.run(
-                ["sudo", protonvpn_path, "disconnect"],
-                check=True,
-                stdout=subprocess.PIPE
-            )
+            subprocess.run(["sudo", protonvpn_path, "disconnect"], check=True, stdout=subprocess.PIPE)
         elif vpn_type == "gui":
-            print(Fore.YELLOW + "[*] Disconnecting via GUI..." + Style.RESET_ALL)
-            subprocess.run(
-                ["proton-vpn", "--disconnect"],
-                check=True,
-                stdout=subprocess.PIPE
-            )
+            subprocess.run(["proton-vpn", "--disconnect"], check=True, stdout=subprocess.PIPE)
             
         print(Fore.GREEN + "[✓] VPN disconnected" + Style.RESET_ALL)
         return True
@@ -391,20 +381,8 @@ def disable_protonvpn():
         return False
         
         
- # Nimeongeza OpenVPN kwa .ovpn Files       
+# --- OPENVPN SECTION (UPDATED) ---       
         
-def check_install_openvpn():
-    """Check if OpenVPN is installed"""
-    try:
-        subprocess.run(["openvpn", "--version"], 
-                      check=True, 
-                      stdout=subprocess.PIPE, 
-                      stderr=subprocess.PIPE)
-        return True
-    except:
-        return False
-
-
 def get_tun_interface():
     """Find active tun/tap interface"""
     try:
@@ -427,10 +405,17 @@ def is_openvpn_connected():
 
 def connect_openvpn():
     config_dir = "openvpn"
+    
+    # FIX: Create directory if it doesn't exist
+    if not os.path.exists(config_dir):
+        os.makedirs(config_dir)
+        print(Fore.RED + f"[!] Directory '{config_dir}' was missing." + Style.RESET_ALL)
+        print(Fore.YELLOW + f"[*] Created '{config_dir}'. Please put your .ovpn files inside it and try again." + Style.RESET_ALL)
+        return False
+
     configs = sorted([f for f in os.listdir(config_dir) if f.endswith(".ovpn")])
     if not configs:
-        print(Fore.RED + "[!] No .ovpn configs found" + Style.RESET_ALL)
-        main_menu()  # fallback to menu
+        print(Fore.RED + f"[!] No .ovpn configs found in '{config_dir}'" + Style.RESET_ALL)
         return False
 
     print(Fore.CYAN + "\nAvailable VPN Configs:" + Style.RESET_ALL)
@@ -438,29 +423,33 @@ def connect_openvpn():
     
     try:
         choice = int(input(Fore.YELLOW + f"\nSelect config (1-{len(configs)}): " + Style.RESET_ALL)) - 1
+        if choice < 0 or choice >= len(configs): raise ValueError
         config_path = f"{config_dir}/{configs[choice]}"
     except:
         print(Fore.RED + "[!] Invalid selection" + Style.RESET_ALL)
-        main_menu()
         return False
 
     log_path = f"report/openvpn_{configs[choice]}.log"
     os.makedirs("report", exist_ok=True)
 
     print(Fore.YELLOW + f"[*] Connecting to {configs[choice]}..." + Style.RESET_ALL)
+    
+    # Start OpenVPN
     with open(log_path, "w") as log_file:
         process = subprocess.Popen(
             ["sudo", "openvpn", "--config", config_path],
             stdout=log_file,
-            stderr=log_file
+            stderr=log_file,
+            preexec_fn=os.setsid # Create new process group
         )
 
     # Wait for connection
     success = False
     start_time = time.time()
+    
+    # Spinner loop
     while time.time() - start_time < 30:
         time.sleep(1)
-
         try:
             with open(log_path, "r") as log_file:
                 logs = log_file.read()
@@ -471,25 +460,27 @@ def connect_openvpn():
             pass
 
         if process.poll() is not None:
+            # Process died
             with open(log_path, "r") as log_file:
-                print(Fore.RED + "[!] OpenVPN crashed:\n" + log_file.read()[-500:] + Style.RESET_ALL)
-            main_menu()
+                print(Fore.RED + "[!] OpenVPN failed:\n" + log_file.read()[-300:] + Style.RESET_ALL)
             return False
 
     if success and is_openvpn_connected():
         print(Fore.GREEN + f"[✓] Connected to {configs[choice]}" + Style.RESET_ALL)
         try:
             vpn_ip = requests.get('https://api.ipify.org', timeout=5).text
-            print(Fore.CYAN + f"[*] VPN IP: {vpn_ip}" + Style.RESET_ALL)
+            print(Fore.CYAN + f"[*] External IP: {vpn_ip}" + Style.RESET_ALL)
         except:
-            print(Fore.YELLOW + "[!] Could not verify external IP" + Style.RESET_ALL)
+            pass
+        return True
     else:
-        print(Fore.RED + "[!] Connection timed out or failed" + Style.RESET_ALL)
-        process.terminate()
-
-    # Continue to main menu regardless
-    main_menu()
-    return True
+        print(Fore.RED + "[!] Connection timed out" + Style.RESET_ALL)
+        # Kill process group
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        except:
+            pass
+        return False
 
 def disconnect_openvpn():
     """Stop any running OpenVPN process"""
@@ -500,6 +491,7 @@ def disconnect_openvpn():
 
         iface = get_tun_interface()
         if iface:
+            # Force kill interface if still up
             subprocess.run(["sudo", "ip", "link", "set", iface, "down"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(["sudo", "ip", "link", "delete", iface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -516,7 +508,7 @@ def main_menu():
         print("1. Show current network information")
         print("2. Change MAC address")
         print("3. Change LAN IP (using Tor)")
-        print("4. Change WAN IP (using Proxies/Tor) [Partial]")
+        print("4. Change WAN IP (using Proxies/Tor)")
         print("5. Change ALL (MAC, LAN, WAN)")
         print("6. Connect ProtonVPN")
         print("7. Disconnect ProtonVPN")
@@ -555,12 +547,11 @@ def main_menu():
             print(Fore.RED + "[-_-] Invalid choice. Please try again." + Style.RESET_ALL)
 
 
-
-
 # Main function
 def main():
     show_banner()
     check_root()
+    check_dependencies()
     main_menu()
 
 
