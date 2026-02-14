@@ -28,7 +28,7 @@ def show_banner():
 	|_|   |_|\__,_|\__|_|  \___/|_|  |_| |_| |_|
     
     """ + Style.RESET_ALL)
-    print(Fore.GREEN + "Be Invisible with J-Anonymous (Final)" + Style.RESET_ALL)
+    print(Fore.GREEN + "Be Invisible with J-Anonymous" + Style.RESET_ALL)
     print(Fore.GREEN + "Meet Me: https://jprojectplatform.com/" + Style.RESET_ALL)
     print(Fore.YELLOW + "Created By JH4CK3R\n" + Style.RESET_ALL)
 
