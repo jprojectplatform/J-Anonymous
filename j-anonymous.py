@@ -28,7 +28,7 @@ def show_banner():
 	|_|   |_|\__,_|\__|_|  \___/|_|  |_| |_| |_|
     
     """ + Style.RESET_ALL)
-    print(Fore.GREEN + "Be Invisible with J-Anonymous (Updated)" + Style.RESET_ALL)
+    print(Fore.GREEN + "Be Invisible with J-Anonymous (Final)" + Style.RESET_ALL)
     print(Fore.GREEN + "Meet Me: https://jprojectplatform.com/" + Style.RESET_ALL)
     print(Fore.YELLOW + "Created By JH4CK3R\n" + Style.RESET_ALL)
 
@@ -123,7 +123,7 @@ def change_lan_ip():
         print(Fore.RED + f"[!] Failed to change LAN IP: {str(e)}" + Style.RESET_ALL)
         return False
 
-# --- WAN IP & PROXY SECTION (UPDATED) ---
+# --- WAN IP & PROXY SECTION (UPDATED with Solution 1) ---
 
 def check_and_install_tor():
     try:
@@ -140,7 +140,7 @@ def check_and_install_tor():
 def fetch_and_test_proxies():
     """
     Updated Robust Proxy Fetcher & Tester.
-    NOW INCLUDES INSTRUCTIONS FOR MANUAL BROWSER CONFIG.
+    INCLUDES INSTRUCTIONS FOR MANUAL BROWSER CONFIG.
     """
     
     PROXY_SOURCES = [
@@ -329,7 +329,7 @@ def disable_protonvpn():
         print(Fore.RED + f"[!] Disconnect failed: {str(e)[:100]}" + Style.RESET_ALL)
         return False
 
-# --- OPENVPN ---
+# --- OPENVPN (UPDATED with Credentials Support) ---
 
 def get_tun_interface():
     try:
@@ -369,32 +369,71 @@ def connect_openvpn():
         print(Fore.RED + "[!] Invalid selection" + Style.RESET_ALL)
         return False
 
+    # --- CREDENTIALS INPUT ---
+    print(Fore.YELLOW + "\n[*] Credentials Check:" + Style.RESET_ALL)
+    print("If your VPN file requires a username/password, enter them now.")
+    print("If not, just press Enter to skip.")
+    username = input("Enter Username: ")
+    
+    auth_arg = []
+    auth_file_path = f"openvpn/pass_{configs[choice]}.txt"
+
+    if username:
+        password = input("Enter Password: ")
+        # Create temp auth file
+        try:
+            with open(auth_file_path, "w") as f:
+                f.write(f"{username}\n{password}")
+            os.chmod(auth_file_path, 0o600) # Secure file
+            auth_arg = ["--auth-user-pass", auth_file_path]
+        except Exception as e:
+            print(Fore.RED + f"[!] Error saving credentials: {e}" + Style.RESET_ALL)
+            return False
+    # -------------------------
+
     log_path = f"report/openvpn_{configs[choice]}.log"
     os.makedirs("report", exist_ok=True)
     print(Fore.YELLOW + f"[*] Connecting to {configs[choice]}..." + Style.RESET_ALL)
     
+    # Construct command
+    command = ["sudo", "openvpn", "--config", config_path] + auth_arg
+
     with open(log_path, "w") as log_file:
         process = subprocess.Popen(
-            ["sudo", "openvpn", "--config", config_path],
+            command,
             stdout=log_file, stderr=log_file, preexec_fn=os.setsid
         )
 
     start_time = time.time()
+    success = False
+    
     while time.time() - start_time < 30:
         time.sleep(1)
         try:
             with open(log_path, "r") as log_file:
-                if "Initialization Sequence Completed" in log_file.read():
-                    if is_openvpn_connected():
-                        print(Fore.GREEN + f"[✓] Connected to {configs[choice]}" + Style.RESET_ALL)
-                        return True
+                logs = log_file.read()
+                if "Initialization Sequence Completed" in logs:
+                    success = True
+                    break
+                if "AUTH_FAILED" in logs:
+                    print(Fore.RED + "[!] Authentication Failed (Wrong Username/Password)" + Style.RESET_ALL)
+                    break
         except: pass
         if process.poll() is not None: break
 
-    print(Fore.RED + "[!] Connection timed out or failed" + Style.RESET_ALL)
-    try: os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-    except: pass
-    return False
+    # Cleanup Auth File
+    if os.path.exists(auth_file_path):
+        try: os.remove(auth_file_path)
+        except: pass
+
+    if success and is_openvpn_connected():
+        print(Fore.GREEN + f"[✓] Connected to {configs[choice]}" + Style.RESET_ALL)
+        return True
+    else:
+        print(Fore.RED + "[!] Connection timed out or failed. Check log at: " + log_path + Style.RESET_ALL)
+        try: os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        except: pass
+        return False
 
 def disconnect_openvpn():
     try:
