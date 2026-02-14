@@ -50,7 +50,6 @@ python3 -m venv j-anonymous-env
 source j-anonymous-env/bin/activate
 pip install -r requirements.txt
 
-
 # Install system dependencies
 sudo apt install tor proxychains curl openvpn -y
 
@@ -63,7 +62,28 @@ A) sudo mousepad /etc/tor/torrc
 B) sudo apt install xxd -y
 ```
 
-### **3. Set Up ProtonVPN (Optional)**  
+### **3. Install J-Wrapper (Optional - Run from Anywhere)**  
+If you want to run J-Anonymous from anywhere in your terminal without navigating to the specific directory, install J-Wrapper:
+
+```bash
+# Install J-Wrapper globally
+git clone https://github.com/jprojectplatform/J-Wrapper.git
+cd J-Wrapper
+sudo make install
+
+# Now you can run J-Anonymous from any location!
+j-wrap run-j-anonymous
+```
+
+**J-Wrapper Features:**
+- 🔄 Run any J Project tool from anywhere in your terminal
+- 🚀 Quick access with simple commands
+- 📁 Automatic path management
+- ⚡ No need to `cd` to specific directories
+
+Learn more about [J-Wrapper here](https://github.com/jprojectplatform/J-Wrapper)
+
+### **4. Set Up ProtonVPN (Optional)**  
 ```bash
 # For CLI version:
 source j-anonymous-env/bin/activate
@@ -75,15 +95,22 @@ sudo $(which protonvpn) init   # Follow setup wizard
 Download from https://protonvpn.com/download
 ```
 
-### **4. Add OpenVPN Configs**  
+### **5. Add OpenVPN Configs**  
 Place your `.ovpn` files in the `openvpn/` directory.  
 
 ---
 
 ## 🚦 **Usage**  
-Run as root:  
+
+### **Standard Usage (in directory):**  
 ```bash
 sudo python3 j-anonymous.py
+```
+
+### **With J-Wrapper (from anywhere):**  
+```bash
+# After installing J-Wrapper
+sudo j-wrap run-j-anonymous
 ```
 
 ### **Menu Options**  
@@ -116,6 +143,7 @@ This project is licensed under **J Project License (JPL)**.
 - ✅ **All-in-One** privacy toolkit  
 - ✅ **No external dependencies** (except VPN services)  
 - ✅ **Works out-of-the-box** on Kali Linux  
+- ✅ **Run from anywhere** with J-Wrapper integration  
 - ✅ **Active development** with regular updates  
 
 ---
@@ -128,11 +156,33 @@ Found a bug? Want a new feature?
 
 ---
 
+## 🔧 **J-Wrapper Commands**  
+After installing J-Wrapper, you can use these commands:
+```bash
+# List all available J Project tools
+j-wrap list
+
+# Run J-Anonymous
+j-wrap run-j-anonymous
+
+# Update J-Wrapper
+j-wrap update
+
+# Get help
+j-wrap --help
+```
+
+---
+
 💙 **Enjoy With J Project Platform**  
 **"Hands With Universal Technology"**  
 
 ```bash
 # Start your privacy journey now!
+# With J-Wrapper installed:
+sudo j-wrap run-j-anonymous
+
+# Or from the directory:
 sudo python3 j-anonymous.py
 ```  
 
